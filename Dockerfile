@@ -3,10 +3,8 @@
 # ===========================================
 # 使用最新的 Go 1.x alpine 镜像作为构建环境
 # 1-alpine 表示：使用 Go 1 系列的最新版本
-# 例如：现在是 1.25.x，以后 1.26、1.27 出来会自动更新
 FROM golang:1-alpine AS builder
 
-# 设置工作目录
 WORKDIR /build
 
 # 设置 Go 代理 - 国内加速
@@ -32,7 +30,6 @@ RUN go install tailscale.com/cmd/derper@latest && \
 # 第二阶段：运行阶段
 # ===========================================
 # 使用更小的 alpine 镜像作为运行环境
-# 这样最终镜像会很小，只包含必要的运行文件
 FROM alpine:latest
 
 # 安装运行时依赖
@@ -53,13 +50,11 @@ COPY --from=builder /go/bin/derper /usr/local/bin/derper
 COPY --from=builder /go/bin/tailscaled /usr/local/bin/tailscaled
 COPY --from=builder /go/bin/tailscale /usr/local/bin/tailscale
 
-# 复制辅助脚本
+# 复制启动脚本（只需要两个）
 COPY generate-cert.sh /usr/local/bin/generate-cert.sh
 COPY start-with-tailscale.sh /usr/local/bin/start-with-tailscale.sh
-COPY get-cert-fingerprint.sh /usr/local/bin/get-cert-fingerprint.sh
 RUN chmod +x /usr/local/bin/generate-cert.sh \
-             /usr/local/bin/start-with-tailscale.sh \
-             /usr/local/bin/get-cert-fingerprint.sh
+             /usr/local/bin/start-with-tailscale.sh
 
 # 设置工作目录
 WORKDIR /app
@@ -83,5 +78,4 @@ ENV DERP_ADDR=:443 \
     TS_EXTRA_ARGS=""
 
 # 使用启动脚本
-# 根据配置决定是否启动 tailscaled 进行客户端验证
 CMD ["/usr/local/bin/start-with-tailscale.sh"]
