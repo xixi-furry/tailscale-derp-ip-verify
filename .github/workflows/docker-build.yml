@@ -1,0 +1,108 @@
+# ============================================
+# GitHub Actions 工作流配置
+# 用于自动构建和发布 Docker 镜像到 GitHub Container Registry
+# ============================================
+
+name: Build and Push Docker Image
+
+# 触发条件
+on:
+  # 当推送到 main 分支时触发
+  push:
+    branches:
+      - main
+    # 当推送 tag 时触发（例如：v1.0.0）
+    tags:
+      - 'v*'
+  
+  # 允许手动触发
+  # 在 GitHub 仓库的 Actions 标签页可以手动运行
+  workflow_dispatch:
+
+# 定义环境变量
+env:
+  # 镜像仓库名称（使用 GitHub Container Registry）
+  REGISTRY: ghcr.io
+  # 镜像名称会自动使用仓库名
+  IMAGE_NAME: ${{ github.repository }}
+
+# 定义任务
+jobs:
+  # 构建任务
+  build-and-push:
+    # 运行环境：使用最新的 Ubuntu
+    runs-on: ubuntu-latest
+    
+    # 设置权限（必须）
+    # contents: read - 读取仓库内容
+    # packages: write - 推送到 GitHub Packages
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      # 步骤1：检出代码
+      # 使用 actions/checkout@v4 拉取仓库代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      # 步骤2：设置 QEMU
+      # QEMU 用于支持多平台构建（如 ARM64）
+      - name: 设置 QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      # 步骤3：设置 Docker Buildx
+      # Buildx 是 Docker 的扩展构建工具
+      # 支持多平台构建和缓存等高级特性
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      # 步骤4：登录到 GitHub Container Registry
+      # 使用 GitHub 提供的 GITHUB_TOKEN 自动认证
+      - name: 登录到 GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # 步骤5：提取 Docker 元数据
+      # 自动生成标签和标注
+      - name: 提取 Docker 元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # 标签规则
+          tags: |
+            # 如果是 tag 推送，使用版本号（如 v1.0.0）
+            type=semver,pattern={{version}}
+            # 如果是 tag 推送，使用主版本号（如 v1）
+            type=semver,pattern={{major}}.{{minor}}
+            # main 分支推送时标记为 latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            # 使用 git commit SHA 的前 7 位
+            type=sha,prefix=sha-,format=short
+      
+      # 步骤6：构建并推送 Docker 镜像
+      # 这是核心步骤
+      - name: 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          # 构建上下文目录（当前目录）
+          context: .
+          # Dockerfile 位置
+          file: ./Dockerfile
+          # 推送到仓库
+          push: true
+          # 使用上一步生成的标签
+          tags: ${{ steps.meta.outputs.tags }}
+          # 使用上一步生成的标注
+          labels: ${{ steps.meta.outputs.labels }}
+          # 支持的平台
+          # linux/amd64: x86_64 架构（服务器常用）
+          # linux/arm64: ARM 架构（树莓派等）
+          platforms: linux/amd64,linux/arm64
+          # 启用缓存（加速构建）
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
